@@ -28,36 +28,43 @@ function cleanupTempFile(filePath) {
   }
 }
 
-// Funzione per download con retry e gestione errori
+// Funzione per download con yt-dlp (sintassi corretta)
 async function downloadAudio(url, outputPath) {
-  console.log(`�� Tentativo download: ${url}`);
+  console.log(` Tentativo download: ${url}`);
   console.log(`📁 Output: ${outputPath}`);
   
   try {
-    // ✅ Opzioni youtube-dl ottimizzate per Render
+    // ✅ Opzioni yt-dlp corrette (non youtube-dl)
     const result = await youtubedl(url, {
+      // ✅ Opzioni base
       extractAudio: true,
       audioFormat: "mp3",
-      audioQuality: 0, // Migliore qualità
+      audioQuality: 0,
       output: outputPath,
       ffmpegLocation: ffmpegPath,
+      
+      // ✅ Opzioni yt-dlp specifiche
       noCheckCertificates: true,
       noWarnings: true,
       preferFreeFormats: true,
-      // ✅ Opzioni aggiuntive per Render
-      writeThumbnail: false,
-      writeDescription: false,
-      writeInfoJson: false,
+      
+      // ✅ Formato audio specifico
+      format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
+      
+      // ✅ Conversione audio (sintassi yt-dlp)
+      postprocessorArgs: [
+        '-acodec', 'libmp3lame',
+        '-ab', '192k',
+        '-ar', '44100'
+      ],
+      
       // ✅ Timeout e retry
       retries: 3,
       fragmentRetries: 3,
-      // ✅ Formato specifico
-      format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
-      postprocessors: [{
-        key: 'FFmpegExtractAudio',
-        preferredcodec: 'mp3',
-        preferredquality: '192'
-      }]
+      
+      // ✅ Opzioni di sicurezza
+      noCheckCertificates: true,
+      noWarnings: true
     });
     
     console.log(`✅ Download completato:`, result);
@@ -66,23 +73,26 @@ async function downloadAudio(url, outputPath) {
   } catch (error) {
     console.error(`❌ Download fallito:`, error.message);
     
-    // ✅ Prova con opzioni alternative
+    // ✅ Prova con opzioni alternative (sintassi yt-dlp)
     try {
       console.log(`🔄 Tentativo con opzioni alternative...`);
       
       const result = await youtubedl(url, {
+        // ✅ Opzioni semplificate per yt-dlp
         extractAudio: true,
         audioFormat: "mp3",
         output: outputPath,
         ffmpegLocation: ffmpegPath,
-        noCheckCertificates: true,
-        noWarnings: true,
-        // ✅ Opzioni semplificate
+        
+        // ✅ Formato semplice
         format: 'bestaudio',
-        postprocessors: [{
-          key: 'FFmpegExtractAudio',
-          preferredcodec: 'mp3'
-        }]
+        
+        // ✅ Conversione semplice
+        postprocessorArgs: ['-acodec', 'libmp3lame'],
+        
+        // ✅ Opzioni base
+        noCheckCertificates: true,
+        noWarnings: true
       });
       
       console.log(`✅ Download alternativo riuscito:`, result);
@@ -90,7 +100,26 @@ async function downloadAudio(url, outputPath) {
       
     } catch (altError) {
       console.error(`❌ Anche il tentativo alternativo fallito:`, altError.message);
-      return false;
+      
+      // ✅ Prova con opzioni minimali
+      try {
+        console.log(`🔄 Tentativo con opzioni minimali...`);
+        
+        const result = await youtubedl(url, {
+          extractAudio: true,
+          audioFormat: "mp3",
+          output: outputPath,
+          ffmpegLocation: ffmpegPath,
+          format: 'bestaudio'
+        });
+        
+        console.log(`✅ Download minimo riuscito:`, result);
+        return true;
+        
+      } catch (minError) {
+        console.error(`❌ Anche il tentativo minimo fallito:`, minError.message);
+        return false;
+      }
     }
   }
 }
@@ -107,7 +136,7 @@ app.post("/download", async (req, res) => {
   const tempDir = path.dirname(output);
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-    console.log(`�� Directory temp creata: ${tempDir}`);
+    console.log(` Directory temp creata: ${tempDir}`);
   }
 
   console.log(`📥 Download request: ${url}`);
@@ -168,10 +197,10 @@ app.get("/mp3", async (req, res) => {
   const tempDir = path.dirname(output);
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-    console.log(`�� Directory temp creata: ${tempDir}`);
+    console.log(` Directory temp creata: ${tempDir}`);
   }
 
-  console.log(`�� GET request: ${url}`);
+  console.log(` GET request: ${url}`);
   console.log(`📁 Output path: ${output}`);
 
   try {
@@ -259,7 +288,8 @@ app.options('*', cors());
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`�� Temp directory: ${path.join(__dirname, "temp")}`);
+  console.log(` Temp directory: ${path.join(__dirname, "temp")}`);
   console.log(`🌍 CORS enabled for all origins`);
-  console.log(`�� FFmpeg path: ${ffmpegPath}`);
+  console.log(` FFmpeg path: ${ffmpegPath}`);
+  console.log(`📦 Using yt-dlp (not youtube-dl)`);
 });
