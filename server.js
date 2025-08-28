@@ -28,47 +28,51 @@ function cleanupTempFile(filePath) {
   }
 }
 
-// Funzione per download con yt-dlp (sintassi corretta)
+// Funzione per download con yt-dlp e debug completo
 async function downloadAudio(url, outputPath) {
   console.log(` Tentativo download: ${url}`);
   console.log(`📁 Output: ${outputPath}`);
   
   try {
-    // ✅ Opzioni yt-dlp corrette (non youtube-dl)
+    // ✅ Opzioni yt-dlp semplificate e testate
     const result = await youtubedl(url, {
-      // ✅ Opzioni base
+      // ✅ Opzioni base essenziali
       extractAudio: true,
       audioFormat: "mp3",
-      audioQuality: 0,
       output: outputPath,
       ffmpegLocation: ffmpegPath,
-      
-      // ✅ Opzioni yt-dlp specifiche
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
       
       // ✅ Formato audio specifico
       format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
       
-      // ✅ Conversione audio (sintassi yt-dlp)
+      // ✅ Conversione audio esplicita
       postprocessorArgs: [
         '-acodec', 'libmp3lame',
-        '-ab', '192k',
-        '-ar', '44100'
+        '-ab', '192k'
       ],
-      
-      // ✅ Timeout e retry
-      retries: 3,
-      fragmentRetries: 3,
       
       // ✅ Opzioni di sicurezza
       noCheckCertificates: true,
-      noWarnings: true
+      noWarnings: true,
+      
+      // ✅ Debug e verbose
+      verbose: true,
+      progress: true
     });
     
     console.log(`✅ Download completato:`, result);
-    return true;
+    
+    // ✅ Verifica immediata del file
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Aspetta 2 secondi
+    
+    if (fs.existsSync(outputPath)) {
+      const stats = fs.statSync(outputPath);
+      console.log(`✅ File verificato: ${outputPath} (${stats.size} bytes)`);
+      return true;
+    } else {
+      console.log(`❌ File non trovato dopo download: ${outputPath}`);
+      return false;
+    }
     
   } catch (error) {
     console.error(`❌ Download fallito:`, error.message);
@@ -92,11 +96,23 @@ async function downloadAudio(url, outputPath) {
         
         // ✅ Opzioni base
         noCheckCertificates: true,
-        noWarnings: true
+        noWarnings: true,
+        verbose: true
       });
       
       console.log(`✅ Download alternativo riuscito:`, result);
-      return true;
+      
+      // ✅ Verifica immediata del file
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (fs.existsSync(outputPath)) {
+        const stats = fs.statSync(outputPath);
+        console.log(`✅ File verificato: ${outputPath} (${stats.size} bytes)`);
+        return true;
+      } else {
+        console.log(`❌ File non trovato dopo download alternativo: ${outputPath}`);
+        return false;
+      }
       
     } catch (altError) {
       console.error(`❌ Anche il tentativo alternativo fallito:`, altError.message);
@@ -110,11 +126,23 @@ async function downloadAudio(url, outputPath) {
           audioFormat: "mp3",
           output: outputPath,
           ffmpegLocation: ffmpegPath,
-          format: 'bestaudio'
+          format: 'bestaudio',
+          verbose: true
         });
         
         console.log(`✅ Download minimo riuscito:`, result);
-        return true;
+        
+        // ✅ Verifica immediata del file
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        if (fs.existsSync(outputPath)) {
+          const stats = fs.statSync(outputPath);
+          console.log(`✅ File verificato: ${outputPath} (${stats.size} bytes)`);
+          return true;
+        } else {
+          console.log(`❌ File non trovato dopo download minimo: ${outputPath}`);
+          return false;
+        }
         
       } catch (minError) {
         console.error(`❌ Anche il tentativo minimo fallito:`, minError.message);
@@ -150,9 +178,9 @@ app.post("/download", async (req, res) => {
       throw new Error("Download fallito dopo tutti i tentativi");
     }
 
-    // ✅ Verifica che il file sia stato creato
+    // ✅ Verifica finale del file
     if (!fs.existsSync(output)) {
-      throw new Error("File output non creato dopo download");
+      throw new Error("File output non trovato dopo download");
     }
 
     const stats = fs.statSync(output);
@@ -160,7 +188,7 @@ app.post("/download", async (req, res) => {
       throw new Error("File output vuoto dopo download");
     }
 
-    console.log(`✅ File creato: ${output} (${stats.size} bytes)`);
+    console.log(`✅ File finale verificato: ${output} (${stats.size} bytes)`);
 
     // ✅ Download del file
     res.download(output, "track.mp3", (err) => {
@@ -200,7 +228,7 @@ app.get("/mp3", async (req, res) => {
     console.log(` Directory temp creata: ${tempDir}`);
   }
 
-  console.log(` GET request: ${url}`);
+  console.log(` Get request: ${url}`);
   console.log(`📁 Output path: ${output}`);
 
   try {
@@ -211,9 +239,9 @@ app.get("/mp3", async (req, res) => {
       throw new Error("Download fallito dopo tutti i tentativi");
     }
 
-    // ✅ Verifica che il file sia stato creato
+    // ✅ Verifica finale del file
     if (!fs.existsSync(output)) {
-      throw new Error("File output non creato dopo download");
+      throw new Error("File output non trovato dopo download");
     }
 
     const stats = fs.statSync(output);
@@ -221,7 +249,7 @@ app.get("/mp3", async (req, res) => {
       throw new Error("File output vuoto dopo download");
     }
 
-    console.log(`✅ File creato: ${output} (${stats.size} bytes)`);
+    console.log(`✅ File finale verificato: ${output} (${stats.size} bytes)`);
 
     // ✅ Download del file
     res.download(output, "track.mp3", (err) => {
@@ -292,4 +320,5 @@ app.listen(PORT, () => {
   console.log(`🌍 CORS enabled for all origins`);
   console.log(` FFmpeg path: ${ffmpegPath}`);
   console.log(`📦 Using yt-dlp (not youtube-dl)`);
+  console.log(`�� Debug mode: ON`);
 });
