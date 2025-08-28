@@ -15,21 +15,21 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Funzione per pulire file temporanei
+// 🔹 Pulizia file temporanei
 function cleanupTempFile(filePath) {
   if (fs.existsSync(filePath)) {
     try {
       fs.unlinkSync(filePath);
-      console.log(`🧹 File temporaneo eliminato: ${filePath}`);
+      console.log(`🧹 File eliminato: ${filePath}`);
     } catch (err) {
       console.error("Errore eliminando file:", err);
     }
   }
 }
 
-// Funzione per scaricare audio
+// 🔹 Funzione download con retry
 async function downloadAudio(url, output) {
-  console.log(`🎵 Avvio download: ${url} -> ${output}`);
+  console.log(`🎵 Download: ${url} -> ${output}`);
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -43,84 +43,73 @@ async function downloadAudio(url, output) {
         noWarnings: true,
         preferFreeFormats: true,
       });
-
-      console.log(`✅ Download completato: ${output}`);
       return true;
     } catch (err) {
       console.error(`❌ Tentativo ${attempt} fallito:`, err.message);
-      if (attempt === maxAttempts) {
-        console.error("🚨 Tutti i tentativi falliti");
-        return false;
-      }
+      if (attempt === maxAttempts) return false;
     }
   }
 }
 
-// Endpoint POST
+// 🔹 POST /mp3
 app.post("/mp3", async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
 
   const output = path.join(__dirname, "temp", `output_${Date.now()}.mp3`);
-  const tempDir = path.dirname(output);
-
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-    console.log(`📂 Directory creata: ${tempDir}`);
-  }
+  fs.mkdirSync(path.dirname(output), { recursive: true });
 
   try {
-    const downloadSuccess = await downloadAudio(url, output);
-    if (!downloadSuccess) throw new Error("Download fallito dopo più tentativi");
-
-    if (!fs.existsSync(output)) throw new Error("File output non trovato");
+    const ok = await downloadAudio(url, output);
+    if (!ok || !fs.existsSync(output)) throw new Error("Download fallito");
     const stats = fs.statSync(output);
     if (stats.size === 0) throw new Error("File vuoto");
 
     res.download(output, "track.mp3", (err) => {
-      if (err) console.error("❌ Download error:", err);
+      if (err) console.error("Errore invio:", err);
       cleanupTempFile(output);
     });
   } catch (err) {
-    console.error("❌ Errore:", err);
     cleanupTempFile(output);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Endpoint GET (fixato!)
+// 🔹 GET /mp3
 app.get("/mp3", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
 
   const output = path.join(__dirname, "temp", `output_${Date.now()}.mp3`);
-  const tempDir = path.dirname(output);
-
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-    console.log(`📂 Directory creata: ${tempDir}`);
-  }
+  fs.mkdirSync(path.dirname(output), { recursive: true });
 
   try {
-    const downloadSuccess = await downloadAudio(url, output);
-    if (!downloadSuccess) throw new Error("Download fallito dopo più tentativi");
-
-    if (!fs.existsSync(output)) throw new Error("File output non trovato");
+    const ok = await downloadAudio(url, output);
+    if (!ok || !fs.existsSync(output)) throw new Error("Download fallito");
     const stats = fs.statSync(output);
     if (stats.size === 0) throw new Error("File vuoto");
 
     res.download(output, "track.mp3", (err) => {
-      if (err) console.error("❌ Download error:", err);
+      if (err) console.error("Errore invio:", err);
       cleanupTempFile(output);
     });
   } catch (err) {
-    console.error("❌ Errore:", err);
     cleanupTempFile(output);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Avvio server
+// 🔹 Healthcheck
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    service: "YouTube MP3 API",
+    endpoints: ["/mp3 (GET)", "/mp3 (POST)"],
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Avvio
 app.listen(PORT, () => {
-  console.log(`🚀 Server avviato su http://localhost:${PORT}`);
+  console.log(`🚀 Server su http://localhost:${PORT}`);
 });
