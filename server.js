@@ -28,28 +28,29 @@ function cleanupTempFile(filePath) {
   }
 }
 
-// Funzione per download con yt-dlp e debug completo
+// Funzione per download con yt-dlp (opzioni corrette)
 async function downloadAudio(url, outputPath) {
   console.log(` Tentativo download: ${url}`);
   console.log(`📁 Output: ${outputPath}`);
   
   try {
-    // ✅ Opzioni yt-dlp semplificate e testate
+    // ✅ Opzioni yt-dlp CORRETTE (non youtube-dl)
     const result = await youtubedl(url, {
-      // ✅ Opzioni base essenziali
-      extractAudio: true,
-      audioFormat: "mp3",
-      output: outputPath,
-      ffmpegLocation: ffmpegPath,
-      
-      // ✅ Formato audio specifico
+      // ✅ Formato audio specifico per yt-dlp
       format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
       
-      // ✅ Conversione audio esplicita
+      // ✅ Conversione audio con FFmpeg
       postprocessorArgs: [
         '-acodec', 'libmp3lame',
-        '-ab', '192k'
+        '-ab', '192k',
+        '-ar', '44100'
       ],
+      
+      // ✅ Output file
+      output: outputPath,
+      
+      // ✅ FFmpeg path
+      ffmpegLocation: ffmpegPath,
       
       // ✅ Opzioni di sicurezza
       noCheckCertificates: true,
@@ -63,7 +64,7 @@ async function downloadAudio(url, outputPath) {
     console.log(`✅ Download completato:`, result);
     
     // ✅ Verifica immediata del file
-    await new Promise(resolve => setTimeout(resolve, 2000)); // Aspetta 2 secondi
+    await new Promise(resolve => setTimeout(resolve, 3000)); // Aspetta 3 secondi
     
     if (fs.existsSync(outputPath)) {
       const stats = fs.statSync(outputPath);
@@ -83,13 +84,9 @@ async function downloadAudio(url, outputPath) {
       
       const result = await youtubedl(url, {
         // ✅ Opzioni semplificate per yt-dlp
-        extractAudio: true,
-        audioFormat: "mp3",
+        format: 'bestaudio',
         output: outputPath,
         ffmpegLocation: ffmpegPath,
-        
-        // ✅ Formato semplice
-        format: 'bestaudio',
         
         // ✅ Conversione semplice
         postprocessorArgs: ['-acodec', 'libmp3lame'],
@@ -103,7 +100,7 @@ async function downloadAudio(url, outputPath) {
       console.log(`✅ Download alternativo riuscito:`, result);
       
       // ✅ Verifica immediata del file
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
       if (fs.existsSync(outputPath)) {
         const stats = fs.statSync(outputPath);
@@ -122,18 +119,16 @@ async function downloadAudio(url, outputPath) {
         console.log(`🔄 Tentativo con opzioni minimali...`);
         
         const result = await youtubedl(url, {
-          extractAudio: true,
-          audioFormat: "mp3",
+          format: 'bestaudio',
           output: outputPath,
           ffmpegLocation: ffmpegPath,
-          format: 'bestaudio',
           verbose: true
         });
         
         console.log(`✅ Download minimo riuscito:`, result);
         
         // ✅ Verifica immediata del file
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         if (fs.existsSync(outputPath)) {
           const stats = fs.statSync(outputPath);
@@ -320,5 +315,6 @@ app.listen(PORT, () => {
   console.log(`🌍 CORS enabled for all origins`);
   console.log(` FFmpeg path: ${ffmpegPath}`);
   console.log(`📦 Using yt-dlp (not youtube-dl)`);
-  console.log(`�� Debug mode: ON`);
+  console.log(` Debug mode: ON`);
+  console.log(`🎵 Audio format: MP3 via FFmpeg`);
 });
