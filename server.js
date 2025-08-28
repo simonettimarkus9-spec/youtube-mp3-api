@@ -204,9 +204,6 @@ app.get("/mp3", async (req, res) => {
   if (!url) return res.status(400).json({ error: "Missing YouTube URL parameter" });
 
   // ✅ Percorso corretto per Render
-  const output = path.join(__dirname, "temp", `output_${Date.now()}.mp3`);
-  
-  // ✅ Crea directory temp se non esiste
   const tempDir = path.dirname(output);
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
