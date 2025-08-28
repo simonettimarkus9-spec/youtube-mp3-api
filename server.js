@@ -15,101 +15,117 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🔹 Pulizia file temporanei
+// Funzione per pulire file temporanei
 function cleanupTempFile(filePath) {
   if (fs.existsSync(filePath)) {
     try {
       fs.unlinkSync(filePath);
-      console.log(`🧹 File eliminato: ${filePath}`);
+      console.log(`🧹 File temporaneo eliminato: ${filePath}`);
     } catch (err) {
       console.error("Errore eliminando file:", err);
     }
   }
 }
 
-// 🔹 Funzione download con retry
+// Funzione per scaricare audio con yt-dl-exec 3.x
 async function downloadAudio(url, output) {
-  console.log(`🎵 Download: ${url} -> ${output}`);
+  console.log(`🎵 Avvio download: ${url} -> ${output}`);
   const maxAttempts = 3;
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await youtubedl(url, {
         output,
-        extractAudio: true,
-        audioFormat: "mp3",
-        audioQuality: 0,
         ffmpegLocation: ffmpegPath,
+        format: "bestaudio",
         noCheckCertificates: true,
         noWarnings: true,
         preferFreeFormats: true,
+        postprocessorArgs: ["-vn", "-acodec", "libmp3lame", "-ab", "192k", "-ar", "44100"]
       });
+
+      console.log(`✅ Download completato: ${output}`);
       return true;
     } catch (err) {
       console.error(`❌ Tentativo ${attempt} fallito:`, err.message);
-      if (attempt === maxAttempts) return false;
+      if (attempt === maxAttempts) {
+        console.error("🚨 Tutti i tentativi falliti");
+        return false;
+      }
     }
   }
 }
 
-// 🔹 POST /mp3
-app.post("/mp3", async (req, res) => {
+// POST /download
+app.post("/download", async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
 
   const output = path.join(__dirname, "temp", `output_${Date.now()}.mp3`);
-  fs.mkdirSync(path.dirname(output), { recursive: true });
+  const tempDir = path.dirname(output);
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
   try {
-    const ok = await downloadAudio(url, output);
-    if (!ok || !fs.existsSync(output)) throw new Error("Download fallito");
-    const stats = fs.statSync(output);
-    if (stats.size === 0) throw new Error("File vuoto");
+    const success = await downloadAudio(url, output);
+    if (!success) throw new Error("Download fallito dopo più tentativi");
+
+    if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
+      throw new Error("File output non trovato o vuoto");
+    }
 
     res.download(output, "track.mp3", (err) => {
-      if (err) console.error("Errore invio:", err);
+      if (err) console.error("❌ Download error:", err);
       cleanupTempFile(output);
     });
   } catch (err) {
+    console.error("❌ Errore:", err);
     cleanupTempFile(output);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 🔹 GET /mp3
+// GET /mp3
 app.get("/mp3", async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
 
   const output = path.join(__dirname, "temp", `output_${Date.now()}.mp3`);
-  fs.mkdirSync(path.dirname(output), { recursive: true });
+  const tempDir = path.dirname(output);
+  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
   try {
-    const ok = await downloadAudio(url, output);
-    if (!ok || !fs.existsSync(output)) throw new Error("Download fallito");
-    const stats = fs.statSync(output);
-    if (stats.size === 0) throw new Error("File vuoto");
+    const success = await downloadAudio(url, output);
+    if (!success) throw new Error("Download fallito dopo più tentativi");
+
+    if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
+      throw new Error("File output non trovato o vuoto");
+    }
 
     res.download(output, "track.mp3", (err) => {
-      if (err) console.error("Errore invio:", err);
+      if (err) console.error("❌ Download error:", err);
       cleanupTempFile(output);
     });
   } catch (err) {
+    console.error("❌ Errore:", err);
     cleanupTempFile(output);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 🔹 Healthcheck
+// Health check
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
     service: "YouTube MP3 API",
-    endpoints: ["/mp3 (GET)", "/mp3 (POST)"],
-    timestamp: new Date().toISOString(),
+    endpoints: ["/download", "/mp3"],
+    timestamp: new Date().toISOString()
   });
 });
 
-// Avvio
+// Avvio server
 app.listen(PORT, () => {
-  console.log(`🚀 Server su http://localhost:${PORT}`);
+  console.log(`🚀 Server avviato su http://localhost:${PORT}`);
+  console.log(`📂 Temp directory: ${path.join(__dirname, "temp")}`);
+  console.log(`🌍 CORS enabled`);
+  console.log(`🔊 FFmpeg path: ${ffmpegPath}`);
 });
