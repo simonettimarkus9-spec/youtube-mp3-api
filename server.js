@@ -28,23 +28,16 @@ function cleanupTempFile(filePath) {
   }
 }
 
-// Funzione per download con yt-dlp (opzioni corrette)
+// Funzione per download con yt-dlp (opzioni CORRETTE)
 async function downloadAudio(url, outputPath) {
   console.log(` Tentativo download: ${url}`);
   console.log(`📁 Output: ${outputPath}`);
   
   try {
-    // ✅ Opzioni yt-dlp CORRETTE (non youtube-dl)
+    // ✅ Opzioni yt-dlp CORRETTE (solo quelle che esistono)
     const result = await youtubedl(url, {
       // ✅ Formato audio specifico per yt-dlp
       format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
-      
-      // ✅ Conversione audio con FFmpeg
-      postprocessorArgs: [
-        '-acodec', 'libmp3lame',
-        '-ab', '192k',
-        '-ar', '44100'
-      ],
       
       // ✅ Output file
       output: outputPath,
@@ -64,7 +57,7 @@ async function downloadAudio(url, outputPath) {
     console.log(`✅ Download completato:`, result);
     
     // ✅ Verifica immediata del file
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Aspetta 3 secondi
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Aspetta 5 secondi
     
     if (fs.existsSync(outputPath)) {
       const stats = fs.statSync(outputPath);
@@ -88,9 +81,6 @@ async function downloadAudio(url, outputPath) {
         output: outputPath,
         ffmpegLocation: ffmpegPath,
         
-        // ✅ Conversione semplice
-        postprocessorArgs: ['-acodec', 'libmp3lame'],
-        
         // ✅ Opzioni base
         noCheckCertificates: true,
         noWarnings: true,
@@ -100,7 +90,7 @@ async function downloadAudio(url, outputPath) {
       console.log(`✅ Download alternativo riuscito:`, result);
       
       // ✅ Verifica immediata del file
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 5000));
       
       if (fs.existsSync(outputPath)) {
         const stats = fs.statSync(outputPath);
@@ -128,7 +118,7 @@ async function downloadAudio(url, outputPath) {
         console.log(`✅ Download minimo riuscito:`, result);
         
         // ✅ Verifica immediata del file
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 5000));
         
         if (fs.existsSync(outputPath)) {
           const stats = fs.statSync(outputPath);
@@ -317,4 +307,5 @@ app.listen(PORT, () => {
   console.log(`📦 Using yt-dlp (not youtube-dl)`);
   console.log(` Debug mode: ON`);
   console.log(`🎵 Audio format: MP3 via FFmpeg`);
+  console.log(`⏱️ Timeout: 5 seconds for conversion`);
 });
