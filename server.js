@@ -28,6 +28,73 @@ function cleanupTempFile(filePath) {
   }
 }
 
+// Funzione per download con retry e gestione errori
+async function downloadAudio(url, outputPath) {
+  console.log(`�� Tentativo download: ${url}`);
+  console.log(`📁 Output: ${outputPath}`);
+  
+  try {
+    // ✅ Opzioni youtube-dl ottimizzate per Render
+    const result = await youtubedl(url, {
+      extractAudio: true,
+      audioFormat: "mp3",
+      audioQuality: 0, // Migliore qualità
+      output: outputPath,
+      ffmpegLocation: ffmpegPath,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true,
+      // ✅ Opzioni aggiuntive per Render
+      writeThumbnail: false,
+      writeDescription: false,
+      writeInfoJson: false,
+      // ✅ Timeout e retry
+      retries: 3,
+      fragmentRetries: 3,
+      // ✅ Formato specifico
+      format: 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio',
+      postprocessors: [{
+        key: 'FFmpegExtractAudio',
+        preferredcodec: 'mp3',
+        preferredquality: '192'
+      }]
+    });
+    
+    console.log(`✅ Download completato:`, result);
+    return true;
+    
+  } catch (error) {
+    console.error(`❌ Download fallito:`, error.message);
+    
+    // ✅ Prova con opzioni alternative
+    try {
+      console.log(`🔄 Tentativo con opzioni alternative...`);
+      
+      const result = await youtubedl(url, {
+        extractAudio: true,
+        audioFormat: "mp3",
+        output: outputPath,
+        ffmpegLocation: ffmpegPath,
+        noCheckCertificates: true,
+        noWarnings: true,
+        // ✅ Opzioni semplificate
+        format: 'bestaudio',
+        postprocessors: [{
+          key: 'FFmpegExtractAudio',
+          preferredcodec: 'mp3'
+        }]
+      });
+      
+      console.log(`✅ Download alternativo riuscito:`, result);
+      return true;
+      
+    } catch (altError) {
+      console.error(`❌ Anche il tentativo alternativo fallito:`, altError.message);
+      return false;
+    }
+  }
+}
+
 // Endpoint POST per download
 app.post("/download", async (req, res) => {
   const { url } = req.body;
@@ -40,31 +107,28 @@ app.post("/download", async (req, res) => {
   const tempDir = path.dirname(output);
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
+    console.log(`�� Directory temp creata: ${tempDir}`);
   }
 
   console.log(`📥 Download request: ${url}`);
   console.log(`📁 Output path: ${output}`);
 
   try {
-    // ✅ Download con youtube-dl
-    await youtubedl(url, {
-      extractAudio: true,
-      audioFormat: "mp3",
-      output: output,
-      ffmpegLocation: ffmpegPath,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true
-    });
+    // ✅ Prova il download
+    const downloadSuccess = await downloadAudio(url, output);
+    
+    if (!downloadSuccess) {
+      throw new Error("Download fallito dopo tutti i tentativi");
+    }
 
     // ✅ Verifica che il file sia stato creato
     if (!fs.existsSync(output)) {
-      throw new Error("File output non creato");
+      throw new Error("File output non creato dopo download");
     }
 
     const stats = fs.statSync(output);
     if (stats.size === 0) {
-      throw new Error("File output vuoto");
+      throw new Error("File output vuoto dopo download");
     }
 
     console.log(`✅ File creato: ${output} (${stats.size} bytes)`);
@@ -104,31 +168,28 @@ app.get("/mp3", async (req, res) => {
   const tempDir = path.dirname(output);
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
+    console.log(`�� Directory temp creata: ${tempDir}`);
   }
 
   console.log(`�� GET request: ${url}`);
   console.log(`📁 Output path: ${output}`);
 
   try {
-    // ✅ Download con youtube-dl
-    await youtubedl(url, {
-      extractAudio: true,
-      audioFormat: "mp3",
-      output: output,
-      ffmpegLocation: ffmpegPath,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true
-    });
+    // ✅ Prova il download
+    const downloadSuccess = await downloadAudio(url, output);
+    
+    if (!downloadSuccess) {
+      throw new Error("Download fallito dopo tutti i tentativi");
+    }
 
     // ✅ Verifica che il file sia stato creato
     if (!fs.existsSync(output)) {
-      throw new Error("File output non creato");
+      throw new Error("File output non creato dopo download");
     }
 
     const stats = fs.statSync(output);
     if (stats.size === 0) {
-      throw new Error("File output vuoto");
+      throw new Error("File output vuoto dopo download");
     }
 
     console.log(`✅ File creato: ${output} (${stats.size} bytes)`);
@@ -200,4 +261,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`�� Temp directory: ${path.join(__dirname, "temp")}`);
   console.log(`🌍 CORS enabled for all origins`);
+  console.log(`�� FFmpeg path: ${ffmpegPath}`);
 });
