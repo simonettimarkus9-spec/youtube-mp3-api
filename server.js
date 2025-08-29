@@ -10,13 +10,11 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
-
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 10000; // Render usa porta 10000
+const port = process.env.PORT || 10000;
 
 // CORS
 app.use(cors({
@@ -26,13 +24,26 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Directory temporanea - usa /tmp su Render
+// Directory temporanea
 const TEMP_DIR = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, "temp");
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-// Funzione per pulire file temporanei
+// 🔑 Gestione cookies YouTube
+const COOKIES_PATH = "/tmp/cookies.txt";
+if (process.env.YT_COOKIES) {
+  try {
+    fs.writeFileSync(COOKIES_PATH, process.env.YT_COOKIES);
+    console.log("🍪 File cookies scritto in", COOKIES_PATH);
+  } catch (err) {
+    console.error("❌ Errore scrittura cookies:", err.message);
+  }
+} else {
+  console.warn("⚠️ Nessun YT_COOKIES trovato, i video con restrizioni non funzioneranno.");
+}
+
+// Pulizia file temporanei
 function cleanupTempFile(filePath) {
   setTimeout(() => {
     if (fs.existsSync(filePath)) {
@@ -41,110 +52,86 @@ function cleanupTempFile(filePath) {
         else console.log(`🧹 File temporaneo rimosso: ${filePath}`);
       });
     }
-  }, 30000); // Pulisci dopo 30 secondi
+  }, 30000);
 }
 
-// Funzione alternativa usando comando diretto
+// Download con comando diretto
 async function downloadAudioDirect(url, outputPath) {
   console.log(`🎬 Tentativo download diretto: ${url} -> ${outputPath}`);
-  
   try {
-    // Comando shell diretto
     const ytdlPath = '/opt/render/project/src/node_modules/youtube-dl-exec/bin/yt-dlp';
-    const command = `"${ytdlPath}" "${url}" -o "${outputPath}" -f bestaudio`;
-    
+
+    // 🔑 Aggiunta cookies se presenti
+    const cookiesOption = fs.existsSync(COOKIES_PATH) ? ` --cookies ${COOKIES_PATH}` : "";
+    const command = `"${ytdlPath}" "${url}" -o "${outputPath}" -f bestaudio${cookiesOption}`;
+
     console.log(`📋 Comando: ${command}`);
-    
     const { stdout, stderr } = await execAsync(command, { timeout: 60000 });
-    
+
     console.log(`📤 Stdout:`, stdout);
     if (stderr) console.log(`📤 Stderr:`, stderr);
 
-    // Verifica file
-    if (!fs.existsSync(outputPath)) {
-      throw new Error(`File non creato: ${outputPath}`);
-    }
-
+    if (!fs.existsSync(outputPath)) throw new Error(`File non creato: ${outputPath}`);
     const stats = fs.statSync(outputPath);
-    if (stats.size === 0) {
-      throw new Error(`File vuoto: ${outputPath}`);
-    }
+    if (stats.size === 0) throw new Error(`File vuoto: ${outputPath}`);
 
     console.log(`✅ Download diretto completato: ${outputPath} (${stats.size} bytes)`);
     return outputPath;
-
   } catch (error) {
     console.error("❌ Errore download diretto:", error);
     return null;
   }
 }
 
-// Funzione di download ULTRA-semplificata per yt-dlp
+// Download con youtube-dl-exec
 async function downloadAudio(url, outputPath) {
   console.log(`🎬 Avvio download: ${url} -> ${outputPath}`);
-  
   try {
-    // SOLO le opzioni essenziali che esistono sicuramente
     const options = {
       output: outputPath,
-      format: 'bestaudio',
+      format: 'bestaudio'
     };
 
-    console.log(`📋 Opzioni download:`, JSON.stringify(options, null, 2));
+    // 🔑 Passa cookies anche qui
+    if (fs.existsSync(COOKIES_PATH)) {
+      options.cookies = COOKIES_PATH;
+    }
 
+    console.log(`📋 Opzioni download:`, JSON.stringify(options, null, 2));
     await youtubedl(url, options);
 
-    // Verifica che il file esista e non sia vuoto
-    if (!fs.existsSync(outputPath)) {
-      throw new Error(`File non trovato: ${outputPath}`);
-    }
-
+    if (!fs.existsSync(outputPath)) throw new Error(`File non trovato: ${outputPath}`);
     const stats = fs.statSync(outputPath);
-    if (stats.size === 0) {
-      throw new Error(`File vuoto: ${outputPath}`);
-    }
+    if (stats.size === 0) throw new Error(`File vuoto: ${outputPath}`);
 
     console.log(`✅ Download completato: ${outputPath} (${stats.size} bytes)`);
     return outputPath;
-
   } catch (error) {
     console.error("❌ Errore download completo:", error);
     console.error("❌ Stderr:", error.stderr);
     console.error("❌ Stdout:", error.stdout);
-    
-    // Pulizia in caso di errore
-    if (fs.existsSync(outputPath)) {
-      fs.unlinkSync(outputPath);
-    }
-    
-    // FALLBACK: prova comando diretto
+
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     console.log("🔄 Tentativo fallback con comando diretto...");
     return await downloadAudioDirect(url, outputPath);
   }
 }
 
-// GET /mp3?url=...
+// GET /mp3
 app.get("/mp3", async (req, res) => {
   const { url } = req.query;
-  
-  if (!url) {
-    return res.status(400).json({ error: "URL mancante" });
-  }
+  if (!url) return res.status(400).json({ error: "URL mancante" });
 
-  // Valida URL YouTube
   const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
-  if (!youtubeRegex.test(url)) {
-    return res.status(400).json({ error: "URL YouTube non valido" });
-  }
+  if (!youtubeRegex.test(url)) return res.status(400).json({ error: "URL YouTube non valido" });
 
   const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
   try {
     console.log(`📥 Richiesta GET per: ${url}`);
-    
     const file = await downloadAudio(url, outputPath);
-    
+
     if (!file) {
       return res.status(500).json({ 
         error: "Download fallito", 
@@ -152,14 +139,12 @@ app.get("/mp3", async (req, res) => {
       });
     }
 
-    // Imposta header appropriati
     res.set({
       'Content-Type': 'audio/mp4',
       'Content-Disposition': `attachment; filename="${fileName}"`,
       'Access-Control-Expose-Headers': 'Content-Disposition'
     });
 
-    // Invia file e poi pulisci
     res.download(file, fileName, (err) => {
       if (err) {
         console.error("❌ Errore invio file:", err.message);
@@ -169,40 +154,29 @@ app.get("/mp3", async (req, res) => {
       }
       cleanupTempFile(file);
     });
-
   } catch (error) {
     console.error("❌ Errore endpoint GET:", error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: "Errore interno del server", 
-        details: error.message 
-      });
+      res.status(500).json({ error: "Errore interno del server", details: error.message });
     }
   }
 });
 
-// POST /download
+// POST /download (uguale a GET)
 app.post("/download", async (req, res) => {
   const { url } = req.body;
-  
-  if (!url) {
-    return res.status(400).json({ error: "URL mancante nel body" });
-  }
+  if (!url) return res.status(400).json({ error: "URL mancante nel body" });
 
-  // Valida URL YouTube
   const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
-  if (!youtubeRegex.test(url)) {
-    return res.status(400).json({ error: "URL YouTube non valido" });
-  }
+  if (!youtubeRegex.test(url)) return res.status(400).json({ error: "URL YouTube non valido" });
 
   const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
   try {
     console.log(`📥 Richiesta POST per: ${url}`);
-    
     const file = await downloadAudio(url, outputPath);
-    
+
     if (!file) {
       return res.status(500).json({ 
         error: "Download fallito", 
@@ -210,14 +184,12 @@ app.post("/download", async (req, res) => {
       });
     }
 
-    // Imposta header appropriati
     res.set({
       'Content-Type': 'audio/mp4',
       'Content-Disposition': `attachment; filename="${fileName}"`,
       'Access-Control-Expose-Headers': 'Content-Disposition'
     });
 
-    // Invia file e poi pulisci
     res.download(file, fileName, (err) => {
       if (err) {
         console.error("❌ Errore invio file:", err.message);
@@ -227,21 +199,16 @@ app.post("/download", async (req, res) => {
       }
       cleanupTempFile(file);
     });
-
   } catch (error) {
     console.error("❌ Errore endpoint POST:", error);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: "Errore interno del server", 
-        details: error.message 
-      });
+      res.status(500).json({ error: "Errore interno del server", details: error.message });
     }
   }
 });
 
-// Health check migliorato con info debug
+// Health check
 app.get("/", async (req, res) => {
-  // Debug: controlla versione yt-dlp
   let ytdlVersion = "unknown";
   try {
     const result = await youtubedl("", { version: true }).catch(() => "error");
@@ -263,24 +230,22 @@ app.get("/", async (req, res) => {
       temp_dir: TEMP_DIR,
       ffmpeg_available: ffmpegPath && fs.existsSync(ffmpegPath),
       ffmpeg_path: ffmpegPath,
-      ytdl_version: ytdlVersion
+      ytdl_version: ytdlVersion,
+      cookies_loaded: fs.existsSync(COOKIES_PATH)
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// Gestione errori globali
+// Errori globali
 app.use((err, req, res, next) => {
   console.error("❌ Errore non gestito:", err);
   if (!res.headersSent) {
-    res.status(500).json({ 
-      error: "Errore interno del server",
-      message: err.message 
-    });
+    res.status(500).json({ error: "Errore interno del server", message: err.message });
   }
 });
 
-// 404 handler
+// 404
 app.use((req, res) => {
   res.status(404).json({ 
     error: "Endpoint non trovato",
