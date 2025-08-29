@@ -196,8 +196,17 @@ app.post("/download", async (req, res) => {
   }
 });
 
-// Health check migliorato
-app.get("/", (req, res) => {
+// Health check migliorato con info debug
+app.get("/", async (req, res) => {
+  // Debug: controlla versione yt-dlp
+  let ytdlVersion = "unknown";
+  try {
+    const result = await youtubedl("", { version: true }).catch(() => "error");
+    ytdlVersion = result || "error";
+  } catch (e) {
+    ytdlVersion = `error: ${e.message}`;
+  }
+
   res.json({
     status: "OK",
     service: "YouTube MP3 API",
@@ -209,7 +218,9 @@ app.get("/", (req, res) => {
     environment: {
       node_env: process.env.NODE_ENV,
       temp_dir: TEMP_DIR,
-      ffmpeg_available: ffmpegPath && fs.existsSync(ffmpegPath)
+      ffmpeg_available: ffmpegPath && fs.existsSync(ffmpegPath),
+      ffmpeg_path: ffmpegPath,
+      ytdl_version: ytdlVersion
     },
     timestamp: new Date().toISOString()
   });
