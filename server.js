@@ -5,6 +5,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import youtubedl from "youtube-dl-exec";
 import ffmpegPath from "ffmpeg-static";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
+import { exec } from "child_process";
+import { promisify } from "util";
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +43,41 @@ function cleanupTempFile(filePath) {
       });
     }
   }, 30000); // Pulisci dopo 30 secondi
+}
+
+// Funzione alternativa usando comando diretto
+async function downloadAudioDirect(url, outputPath) {
+  console.log(`🎬 Tentativo download diretto: ${url} -> ${outputPath}`);
+  
+  try {
+    // Comando shell diretto
+    const ytdlPath = '/opt/render/project/src/node_modules/youtube-dl-exec/bin/yt-dlp';
+    const command = `"${ytdlPath}" "${url}" -o "${outputPath}" -f bestaudio`;
+    
+    console.log(`📋 Comando: ${command}`);
+    
+    const { stdout, stderr } = await execAsync(command, { timeout: 60000 });
+    
+    console.log(`📤 Stdout:`, stdout);
+    if (stderr) console.log(`📤 Stderr:`, stderr);
+
+    // Verifica file
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`File non creato: ${outputPath}`);
+    }
+
+    const stats = fs.statSync(outputPath);
+    if (stats.size === 0) {
+      throw new Error(`File vuoto: ${outputPath}`);
+    }
+
+    console.log(`✅ Download diretto completato: ${outputPath} (${stats.size} bytes)`);
+    return outputPath;
+
+  } catch (error) {
+    console.error("❌ Errore download diretto:", error);
+    return null;
+  }
 }
 
 // Funzione di download ULTRA-semplificata per yt-dlp
@@ -76,7 +118,9 @@ async function downloadAudio(url, outputPath) {
       fs.unlinkSync(outputPath);
     }
     
-    return null;
+    // FALLBACK: prova comando diretto
+    console.log("🔄 Tentativo fallback con comando diretto...");
+    return await downloadAudioDirect(url, outputPath);
   }
 }
 
