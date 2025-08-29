@@ -38,39 +38,16 @@ function cleanupTempFile(filePath) {
   }, 30000); // Pulisci dopo 30 secondi
 }
 
-// Funzione di download corretta per yt-dlp
+// Funzione di download ULTRA-semplificata per yt-dlp
 async function downloadAudio(url, outputPath) {
   console.log(`🎬 Avvio download: ${url} -> ${outputPath}`);
   
   try {
-    // Opzioni corrette per yt-dlp
+    // SOLO le opzioni essenziali che esistono sicuramente
     const options = {
       output: outputPath,
-      format: 'bestaudio[ext=m4a]/bestaudio/best',
-      noCheckCertificates: true,
-      noWarnings: true,
-      // Rimosso extractFlat perché non supportato in yt-dlp con questa sintassi
-      writeInfoJson: false,
-      writeThumbnail: false,
-      writeDescription: false,
-      writeAnnotations: false,
-      writeSubtitles: false,
-      writeAutoSub: false,
-      // Cambiato da ignoreerrors a ignoreErrors (camelCase corretto)
-      ignoreErrors: false,
-      // User agent corretto per yt-dlp
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      // Timeout
-      socketTimeout: 30,
-      // Opzioni aggiuntive per stabilità
-      retries: 3,
-      noPlaylist: true,
+      format: 'bestaudio',
     };
-
-    // Solo se ffmpeg è disponibile
-    if (ffmpegPath && fs.existsSync(ffmpegPath)) {
-      options.ffmpegLocation = ffmpegPath;
-    }
 
     console.log(`📋 Opzioni download:`, JSON.stringify(options, null, 2));
 
@@ -91,6 +68,8 @@ async function downloadAudio(url, outputPath) {
 
   } catch (error) {
     console.error("❌ Errore download completo:", error);
+    console.error("❌ Stderr:", error.stderr);
+    console.error("❌ Stdout:", error.stdout);
     
     // Pulizia in caso di errore
     if (fs.existsSync(outputPath)) {
