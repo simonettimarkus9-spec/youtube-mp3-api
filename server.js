@@ -14,7 +14,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 10000;
+const port = process.env.PORT || 10000; // Render usa porta 10000
+
+// === COOKIE HANDLING ===
+// Su Render scriviamo YT_COOKIES in un file temporaneo
+const COOKIE_PATH = path.join("/tmp", "cookies.txt");
+if (process.env.YT_COOKIES) {
+  fs.writeFileSync(COOKIE_PATH, process.env.YT_COOKIES, "utf8");
+  console.log("🍪 Cookies scritti su", COOKIE_PATH);
+} else {
+  console.log("⚠️ Nessun YT_COOKIES trovato, uso senza cookies");
+}
 
 // CORS
 app.use(cors({
@@ -24,26 +34,13 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Directory temporanea
+// Directory temporanea - usa /tmp su Render
 const TEMP_DIR = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, "temp");
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-// 🔑 Gestione cookies YouTube
-const COOKIES_PATH = "/tmp/cookies.txt";
-if (process.env.YT_COOKIES) {
-  try {
-    fs.writeFileSync(COOKIES_PATH, process.env.YT_COOKIES);
-    console.log("🍪 File cookies scritto in", COOKIES_PATH);
-  } catch (err) {
-    console.error("❌ Errore scrittura cookies:", err.message);
-  }
-} else {
-  console.warn("⚠️ Nessun YT_COOKIES trovato, i video con restrizioni non funzioneranno.");
-}
-
-// Pulizia file temporanei
+// Funzione per pulire file temporanei
 function cleanupTempFile(filePath) {
   setTimeout(() => {
     if (fs.existsSync(filePath)) {
@@ -52,86 +49,109 @@ function cleanupTempFile(filePath) {
         else console.log(`🧹 File temporaneo rimosso: ${filePath}`);
       });
     }
-  }, 30000);
+  }, 30000); // Pulisci dopo 30 secondi
 }
 
-// Download con comando diretto
+// Funzione alternativa usando comando diretto
 async function downloadAudioDirect(url, outputPath) {
   console.log(`🎬 Tentativo download diretto: ${url} -> ${outputPath}`);
+  
   try {
+    // Comando shell diretto
     const ytdlPath = '/opt/render/project/src/node_modules/youtube-dl-exec/bin/yt-dlp';
-
-    // 🔑 Aggiunta cookies se presenti
-    const cookiesOption = fs.existsSync(COOKIES_PATH) ? ` --cookies ${COOKIES_PATH}` : "";
-    const command = `"${ytdlPath}" "${url}" -o "${outputPath}" -f bestaudio${cookiesOption}`;
-
+    const command = `"${ytdlPath}" "${url}" -o "${outputPath}" -f bestaudio ${process.env.YT_COOKIES ? `--cookies "${COOKIE_PATH}"` : ""}`;
+    
     console.log(`📋 Comando: ${command}`);
+    
     const { stdout, stderr } = await execAsync(command, { timeout: 60000 });
-
+    
     console.log(`📤 Stdout:`, stdout);
     if (stderr) console.log(`📤 Stderr:`, stderr);
 
-    if (!fs.existsSync(outputPath)) throw new Error(`File non creato: ${outputPath}`);
+    // Verifica file
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`File non creato: ${outputPath}`);
+    }
+
     const stats = fs.statSync(outputPath);
-    if (stats.size === 0) throw new Error(`File vuoto: ${outputPath}`);
+    if (stats.size === 0) {
+      throw new Error(`File vuoto: ${outputPath}`);
+    }
 
     console.log(`✅ Download diretto completato: ${outputPath} (${stats.size} bytes)`);
     return outputPath;
+
   } catch (error) {
     console.error("❌ Errore download diretto:", error);
     return null;
   }
 }
 
-// Download con youtube-dl-exec
+// Funzione di download ULTRA-semplificata per yt-dlp
 async function downloadAudio(url, outputPath) {
   console.log(`🎬 Avvio download: ${url} -> ${outputPath}`);
+  
   try {
+    // SOLO le opzioni essenziali
     const options = {
       output: outputPath,
-      format: 'bestaudio'
+      format: 'bestaudio',
+      ...(process.env.YT_COOKIES ? { cookies: COOKIE_PATH } : {})
     };
 
-    // 🔑 Passa cookies anche qui
-    if (fs.existsSync(COOKIES_PATH)) {
-      options.cookies = COOKIES_PATH;
-    }
-
     console.log(`📋 Opzioni download:`, JSON.stringify(options, null, 2));
+
     await youtubedl(url, options);
 
-    if (!fs.existsSync(outputPath)) throw new Error(`File non trovato: ${outputPath}`);
+    // Verifica che il file esista e non sia vuoto
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`File non trovato: ${outputPath}`);
+    }
+
     const stats = fs.statSync(outputPath);
-    if (stats.size === 0) throw new Error(`File vuoto: ${outputPath}`);
+    if (stats.size === 0) {
+      throw new Error(`File vuoto: ${outputPath}`);
+    }
 
     console.log(`✅ Download completato: ${outputPath} (${stats.size} bytes)`);
     return outputPath;
+
   } catch (error) {
     console.error("❌ Errore download completo:", error);
     console.error("❌ Stderr:", error.stderr);
     console.error("❌ Stdout:", error.stdout);
-
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+    
     console.log("🔄 Tentativo fallback con comando diretto...");
     return await downloadAudioDirect(url, outputPath);
   }
 }
 
-// GET /mp3
+// GET /mp3?url=...
 app.get("/mp3", async (req, res) => {
   const { url } = req.query;
-  if (!url) return res.status(400).json({ error: "URL mancante" });
+  
+  if (!url) {
+    return res.status(400).json({ error: "URL mancante" });
+  }
 
+  // Valida URL YouTube
   const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
-  if (!youtubeRegex.test(url)) return res.status(400).json({ error: "URL YouTube non valido" });
+  if (!youtubeRegex.test(url)) {
+    return res.status(400).json({ error: "URL YouTube non valido" });
+  }
 
   const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
   try {
     console.log(`📥 Richiesta GET per: ${url}`);
+    
     const file = await downloadAudio(url, outputPath);
-
+    
     if (!file) {
       return res.status(500).json({ 
         error: "Download fallito", 
@@ -154,29 +174,39 @@ app.get("/mp3", async (req, res) => {
       }
       cleanupTempFile(file);
     });
+
   } catch (error) {
     console.error("❌ Errore endpoint GET:", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Errore interno del server", details: error.message });
+      res.status(500).json({ 
+        error: "Errore interno del server", 
+        details: error.message 
+      });
     }
   }
 });
 
-// POST /download (uguale a GET)
+// POST /download
 app.post("/download", async (req, res) => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "URL mancante nel body" });
+  
+  if (!url) {
+    return res.status(400).json({ error: "URL mancante nel body" });
+  }
 
   const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
-  if (!youtubeRegex.test(url)) return res.status(400).json({ error: "URL YouTube non valido" });
+  if (!youtubeRegex.test(url)) {
+    return res.status(400).json({ error: "URL YouTube non valido" });
+  }
 
   const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
   try {
     console.log(`📥 Richiesta POST per: ${url}`);
+    
     const file = await downloadAudio(url, outputPath);
-
+    
     if (!file) {
       return res.status(500).json({ 
         error: "Download fallito", 
@@ -199,10 +229,14 @@ app.post("/download", async (req, res) => {
       }
       cleanupTempFile(file);
     });
+
   } catch (error) {
     console.error("❌ Errore endpoint POST:", error);
     if (!res.headersSent) {
-      res.status(500).json({ error: "Errore interno del server", details: error.message });
+      res.status(500).json({ 
+        error: "Errore interno del server", 
+        details: error.message 
+      });
     }
   }
 });
@@ -231,17 +265,20 @@ app.get("/", async (req, res) => {
       ffmpeg_available: ffmpegPath && fs.existsSync(ffmpegPath),
       ffmpeg_path: ffmpegPath,
       ytdl_version: ytdlVersion,
-      cookies_loaded: fs.existsSync(COOKIES_PATH)
+      cookies_enabled: !!process.env.YT_COOKIES
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// Errori globali
+// Error handler
 app.use((err, req, res, next) => {
   console.error("❌ Errore non gestito:", err);
   if (!res.headersSent) {
-    res.status(500).json({ error: "Errore interno del server", message: err.message });
+    res.status(500).json({ 
+      error: "Errore interno del server",
+      message: err.message 
+    });
   }
 });
 
@@ -260,4 +297,5 @@ app.listen(port, () => {
   console.log(`🔊 FFmpeg disponibile: ${ffmpegPath && fs.existsSync(ffmpegPath)}`);
   console.log(`🔊 FFmpeg path: ${ffmpegPath}`);
   console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🍪 Cookies: ${process.env.YT_COOKIES ? "attivi" : "non presenti"}`);
 });
