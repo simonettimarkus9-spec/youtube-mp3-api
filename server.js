@@ -4,9 +4,10 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import youtubedl from "youtube-dl-exec";
+import ffmpegPath from "ffmpeg-static";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -14,102 +15,69 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Pulizia file temporanei
-function cleanupTempFile(filePath) {
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      console.log(`🧹 File temporaneo eliminato: ${filePath}`);
-    } catch (err) {
-      console.error("Errore eliminando file:", err);
-    }
-  }
-}
+const TEMP_DIR = path.join(__dirname, "temp");
+if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
-// Funzione download audio rapido in M4A
-async function downloadAudio(url, output) {
-  console.log(`🎵 Avvio download: ${url} -> ${output}`);
+// Funzione di download
+async function downloadAudio(url, outputPath, format = "m4a") {
+  console.log(`🎬 Avvio download: ${url} -> ${outputPath} (${format})`);
+
   try {
     await youtubedl(url, {
-      output,
-      format: "bestaudio[ext=m4a]/bestaudio",
+      output: outputPath,
+      extractAudio: true,
+      audioFormat: format,
+      ffmpegLocation: ffmpegPath,
       noCheckCertificates: true,
-      noWarnings: true,
       preferFreeFormats: true,
-      postprocessorArgs: ["-vn"], // niente video, solo audio
+      addMetadata: true,
+      verbose: true,
     });
 
-    if (!fs.existsSync(output) || fs.statSync(output).size === 0) {
-      throw new Error("File output non trovato o vuoto");
-    }
+    if (!fs.existsSync(outputPath)) throw new Error("File non creato");
+    if (fs.statSync(outputPath).size === 0) throw new Error("File vuoto");
 
-    console.log(`✅ Download completato: ${output}`);
-    return true;
+    return outputPath;
   } catch (err) {
-    console.error("❌ Download fallito:", err.message);
-    return false;
+    console.error("❌ Errore download:", err.message);
+    return null;
   }
 }
 
-// POST /download
-app.post("/download", async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
-
-  const output = path.join(__dirname, "temp", `output_${Date.now()}.m4a`);
-  const tempDir = path.dirname(output);
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-  try {
-    const success = await downloadAudio(url, output);
-    if (!success) throw new Error("Download fallito");
-
-    res.download(output, "track.m4a", (err) => {
-      if (err) console.error("❌ Download error:", err);
-      cleanupTempFile(output);
-    });
-  } catch (err) {
-    cleanupTempFile(output);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /mp3
+// GET /mp3?url=...&format=mp3|m4a
 app.get("/mp3", async (req, res) => {
-  const { url } = req.query;
-  if (!url) return res.status(400).json({ error: "Missing YouTube URL" });
+  const { url, format = "m4a" } = req.query;
+  if (!url) return res.status(400).json({ error: "URL mancante" });
 
-  const output = path.join(__dirname, "temp", `output_${Date.now()}.m4a`);
-  const tempDir = path.dirname(output);
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+  const fileName = `output_${Date.now()}.${format}`;
+  const outputPath = path.join(TEMP_DIR, fileName);
 
-  try {
-    const success = await downloadAudio(url, output);
-    if (!success) throw new Error("Download fallito");
+  const file = await downloadAudio(url, outputPath, format);
+  if (!file) return res.status(500).json({ error: "Download fallito" });
 
-    res.download(output, "track.m4a", (err) => {
-      if (err) console.error("❌ Download error:", err);
-      cleanupTempFile(output);
-    });
-  } catch (err) {
-    cleanupTempFile(output);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Health check
-app.get("/", (req, res) => {
-  res.json({
-    status: "OK",
-    service: "YouTube Audio API",
-    endpoints: ["/download", "/mp3"],
-    timestamp: new Date().toISOString()
+  res.download(file, fileName, (err) => {
+    if (err) console.error("❌ Errore invio file:", err.message);
+    fs.unlink(file, () => {}); // elimina dopo l’invio
   });
 });
 
-// Avvio server
-app.listen(PORT, () => {
-  console.log(`🚀 Server avviato su http://localhost:${PORT}`);
-  console.log(`📂 Temp directory: ${path.join(__dirname, "temp")}`);
-  console.log(`🌍 CORS abilitato`);
+// POST /download { "url": "...", "format": "m4a" }
+app.post("/download", async (req, res) => {
+  const { url, format = "m4a" } = req.body;
+  if (!url) return res.status(400).json({ error: "URL mancante" });
+
+  const fileName = `output_${Date.now()}.${format}`;
+  const outputPath = path.join(TEMP_DIR, fileName);
+
+  const file = await downloadAudio(url, outputPath, format);
+  if (!file) return res.status(500).json({ error: "Download fallito" });
+
+  res.download(file, fileName, (err) => {
+    if (err) console.error("❌ Errore invio file:", err.message);
+    fs.unlink(file, () => {});
+  });
+});
+
+app.listen(port, () => {
+  console.log(`🌍 Server attivo su http://localhost:${port}`);
 });
