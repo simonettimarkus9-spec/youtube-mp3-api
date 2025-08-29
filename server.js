@@ -10,99 +10,254 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000; // Render usa porta 10000
 
 // CORS
-app.use(cors({ origin: "*", methods: ["GET", "POST", "OPTIONS"], allowedHeaders: ["Content-Type"] }));
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}));
 app.use(express.json());
 
-// Directory temporanea
-const TEMP_DIR = path.join(__dirname, "temp");
-if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+// Directory temporanea - usa /tmp su Render
+const TEMP_DIR = process.env.NODE_ENV === 'production' ? '/tmp' : path.join(__dirname, "temp");
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
 
 // Funzione per pulire file temporanei
 function cleanupTempFile(filePath) {
-  if (fs.existsSync(filePath)) {
-    fs.unlink(filePath, () => {});
-    console.log(`🧹 File temporaneo rimosso: ${filePath}`);
-  }
+  setTimeout(() => {
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, (err) => {
+        if (err) console.error(`❌ Errore rimozione file: ${err.message}`);
+        else console.log(`🧹 File temporaneo rimosso: ${filePath}`);
+      });
+    }
+  }, 30000); // Pulisci dopo 30 secondi
 }
 
-// Funzione di download ottimizzata
+// Funzione di download migliorata
 async function downloadAudio(url, outputPath) {
   console.log(`🎬 Avvio download: ${url} -> ${outputPath}`);
-
+  
   try {
-    await youtubedl(url, {
+    // Opzioni più robuste per youtube-dl
+    const options = {
       output: outputPath,
-      ffmpegLocation: ffmpegPath,
-      format: "bestaudio",
-      postprocessorArgs: ["-vn", "-acodec", "copy"], // copia audio senza riconversione
+      format: 'bestaudio[ext=m4a]/bestaudio/best',
       noCheckCertificates: true,
-      preferFreeFormats: true,
-      addMetadata: true,
-      verbose: true
-    });
+      noWarnings: true,
+      extractFlat: false,
+      writeInfoJson: false,
+      writeThumbnail: false,
+      writeDescription: false,
+      writeAnnotations: false,
+      writeSubtitles: false,
+      writeAutoSub: false,
+      ignoreerrors: false,
+      // Aggiungi user agent per evitare blocchi
+      addHeader: [
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      ],
+      // Timeout più lungo
+      socketTimeout: 30,
+    };
 
-    if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
-      throw new Error("File non creato o vuoto");
+    // Solo se ffmpeg è disponibile
+    if (ffmpegPath && fs.existsSync(ffmpegPath)) {
+      options.ffmpegLocation = ffmpegPath;
     }
 
-    console.log(`✅ Download completato: ${outputPath}`);
+    console.log(`📋 Opzioni download:`, JSON.stringify(options, null, 2));
+
+    await youtubedl(url, options);
+
+    // Verifica che il file esista e non sia vuoto
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(`File non trovato: ${outputPath}`);
+    }
+
+    const stats = fs.statSync(outputPath);
+    if (stats.size === 0) {
+      throw new Error(`File vuoto: ${outputPath}`);
+    }
+
+    console.log(`✅ Download completato: ${outputPath} (${stats.size} bytes)`);
     return outputPath;
-  } catch (err) {
-    console.error("❌ Errore download:", err.message);
+
+  } catch (error) {
+    console.error("❌ Errore download completo:", error);
+    
+    // Pulizia in caso di errore
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+    
     return null;
   }
 }
 
-// GET /mp3?url=...&format=m4a
+// GET /mp3?url=...
 app.get("/mp3", async (req, res) => {
   const { url } = req.query;
-  if (!url) return res.status(400).json({ error: "URL mancante" });
+  
+  if (!url) {
+    return res.status(400).json({ error: "URL mancante" });
+  }
 
-  const fileName = `output_${Date.now()}.m4a`;
+  // Valida URL YouTube
+  const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
+  if (!youtubeRegex.test(url)) {
+    return res.status(400).json({ error: "URL YouTube non valido" });
+  }
+
+  const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
-  const file = await downloadAudio(url, outputPath);
-  if (!file) return res.status(500).json({ error: "Download fallito" });
+  try {
+    console.log(`📥 Richiesta GET per: ${url}`);
+    
+    const file = await downloadAudio(url, outputPath);
+    
+    if (!file) {
+      return res.status(500).json({ 
+        error: "Download fallito", 
+        details: "Impossibile scaricare l'audio dal video" 
+      });
+    }
 
-  res.download(file, fileName, (err) => {
-    if (err) console.error("❌ Errore invio file:", err.message);
-    cleanupTempFile(file);
-  });
+    // Imposta header appropriati
+    res.set({
+      'Content-Type': 'audio/mp4',
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Access-Control-Expose-Headers': 'Content-Disposition'
+    });
+
+    // Invia file e poi pulisci
+    res.download(file, fileName, (err) => {
+      if (err) {
+        console.error("❌ Errore invio file:", err.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Errore invio file" });
+        }
+      }
+      cleanupTempFile(file);
+    });
+
+  } catch (error) {
+    console.error("❌ Errore endpoint GET:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: "Errore interno del server", 
+        details: error.message 
+      });
+    }
+  }
 });
 
-// POST /download { "url": "..." }
+// POST /download
 app.post("/download", async (req, res) => {
   const { url } = req.body;
-  if (!url) return res.status(400).json({ error: "URL mancante" });
+  
+  if (!url) {
+    return res.status(400).json({ error: "URL mancante nel body" });
+  }
 
-  const fileName = `output_${Date.now()}.m4a`;
+  // Valida URL YouTube
+  const youtubeRegex = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/;
+  if (!youtubeRegex.test(url)) {
+    return res.status(400).json({ error: "URL YouTube non valido" });
+  }
+
+  const fileName = `output_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.m4a`;
   const outputPath = path.join(TEMP_DIR, fileName);
 
-  const file = await downloadAudio(url, outputPath);
-  if (!file) return res.status(500).json({ error: "Download fallito" });
+  try {
+    console.log(`📥 Richiesta POST per: ${url}`);
+    
+    const file = await downloadAudio(url, outputPath);
+    
+    if (!file) {
+      return res.status(500).json({ 
+        error: "Download fallito", 
+        details: "Impossibile scaricare l'audio dal video" 
+      });
+    }
 
-  res.download(file, fileName, (err) => {
-    if (err) console.error("❌ Errore invio file:", err.message);
-    cleanupTempFile(file);
-  });
+    // Imposta header appropriati
+    res.set({
+      'Content-Type': 'audio/mp4',
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Access-Control-Expose-Headers': 'Content-Disposition'
+    });
+
+    // Invia file e poi pulisci
+    res.download(file, fileName, (err) => {
+      if (err) {
+        console.error("❌ Errore invio file:", err.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Errore invio file" });
+        }
+      }
+      cleanupTempFile(file);
+    });
+
+  } catch (error) {
+    console.error("❌ Errore endpoint POST:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: "Errore interno del server", 
+        details: error.message 
+      });
+    }
+  }
 });
 
-// Health check
+// Health check migliorato
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
     service: "YouTube MP3 API",
-    endpoints: ["/download", "/mp3"],
+    version: "1.0.0",
+    endpoints: {
+      "GET /mp3?url=VIDEO_URL": "Scarica audio da YouTube",
+      "POST /download": "Scarica audio (body: {url: 'VIDEO_URL'})"
+    },
+    environment: {
+      node_env: process.env.NODE_ENV,
+      temp_dir: TEMP_DIR,
+      ffmpeg_available: ffmpegPath && fs.existsSync(ffmpegPath)
+    },
     timestamp: new Date().toISOString()
   });
 });
 
+// Gestione errori globali
+app.use((err, req, res, next) => {
+  console.error("❌ Errore non gestito:", err);
+  if (!res.headersSent) {
+    res.status(500).json({ 
+      error: "Errore interno del server",
+      message: err.message 
+    });
+  }
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: "Endpoint non trovato",
+    available_endpoints: ["/", "/mp3", "/download"]
+  });
+});
+
 app.listen(port, () => {
-  console.log(`🌍 Server attivo su http://localhost:${port}`);
+  console.log(`🌍 Server attivo su porta ${port}`);
   console.log(`📂 Temp directory: ${TEMP_DIR}`);
   console.log(`🌍 CORS abilitato`);
+  console.log(`🔊 FFmpeg disponibile: ${ffmpegPath && fs.existsSync(ffmpegPath)}`);
   console.log(`🔊 FFmpeg path: ${ffmpegPath}`);
+  console.log(`🌐 Ambiente: ${process.env.NODE_ENV || 'development'}`);
 });
