@@ -38,31 +38,33 @@ function cleanupTempFile(filePath) {
   }, 30000); // Pulisci dopo 30 secondi
 }
 
-// Funzione di download migliorata
+// Funzione di download corretta per yt-dlp
 async function downloadAudio(url, outputPath) {
   console.log(`🎬 Avvio download: ${url} -> ${outputPath}`);
   
   try {
-    // Opzioni più robuste per youtube-dl
+    // Opzioni corrette per yt-dlp
     const options = {
       output: outputPath,
       format: 'bestaudio[ext=m4a]/bestaudio/best',
       noCheckCertificates: true,
       noWarnings: true,
-      extractFlat: false,
+      // Rimosso extractFlat perché non supportato in yt-dlp con questa sintassi
       writeInfoJson: false,
       writeThumbnail: false,
       writeDescription: false,
       writeAnnotations: false,
       writeSubtitles: false,
       writeAutoSub: false,
-      ignoreerrors: false,
-      // Aggiungi user agent per evitare blocchi
-      addHeader: [
-        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      ],
-      // Timeout più lungo
+      // Cambiato da ignoreerrors a ignoreErrors (camelCase corretto)
+      ignoreErrors: false,
+      // User agent corretto per yt-dlp
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      // Timeout
       socketTimeout: 30,
+      // Opzioni aggiuntive per stabilità
+      retries: 3,
+      noPlaylist: true,
     };
 
     // Solo se ffmpeg è disponibile
